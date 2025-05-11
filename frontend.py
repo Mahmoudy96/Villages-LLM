@@ -1,45 +1,133 @@
+import os
 import streamlit as st
-import random
-import time
+import requests  # Add this import
+from pymongo import MongoClient
+import chromadb
+from chromadb.utils import embedding_functions
+from langchain_community.llms import HuggingFaceHub
+from langchain.prompts import PromptTemplate
+from langchain.chains import LLMChain
+from langchain_community.llms import Ollama
 
-st.write("Streamlit loves LLMs! 🤖 [Build your own chat app](https://docs.streamlit.io/develop/tutorials/llms/build-conversational-apps) in minutes, then make it powerful by adding images, dataframes, or even input widgets to the chat.")
+# Configuration - update with your backend URL
+BACKEND_URL = "http://localhost:8000"  # Change if your backend is hosted elsewhere
 
-st.caption("Note that this demo app isn't actually connected to any LLMs. Those are expensive ;)")
+# Initialize Streamlit app
+st.set_page_config(
+    page_title="RAG LLM Chatbot",
+    page_icon="🤖",
+    layout="wide"
+)
 
-# Initialize chat history
+# Initialize session state for chat history
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "Let's start chatting! 👇"}]
+    st.session_state.messages = []
 
-# Display chat messages from history on app rerun
+# Sidebar for configuration
+with st.sidebar:
+    st.title("LLM Configuration")
+    
+    # Backend connection status
+    try:
+        health_response = requests.get(f"{BACKEND_URL}/health")
+        if health_response.status_code == 200:
+            st.success("✅ Backend connected")
+        else:
+            st.error("❌ Backend connection failed")
+    except:
+        st.error("❌ Backend connection failed")
+    
+    # # RAG toggle
+    # rag_enabled = st.checkbox("Enable RAG", value=True)
+    
+    # # Model selection
+    # model_provider = st.radio(
+    #     "Choose LLM Provider",
+    #     ["Backend (FastAPI)", "HuggingFace Hub", "Ollama"],
+    #     index=0
+    # )
+    
+    # Common parameters
+    temperature = st.slider("Temperature", 0.0, 1.0, 0.7)
+    max_length = st.number_input("Max Length", 100, 2000, 500)
+    
+    # # HuggingFace specific settings
+    # if model_provider == "HuggingFace Hub":
+    #     repo_id = st.text_input(
+    #         "Model Repository ID",
+    #         value="google/gemma-2b"
+    #     )
+    
+    # # Ollama specific settings
+    # elif model_provider == "Ollama":
+    #     ollama_model = st.text_input(
+    #         "Ollama Model Name",
+    #         value="mistral"
+    #     )
+    
+    # # Backend specific settings
+    # else:
+    model_name = st.text_input(
+            "Backend Model Name",
+             value="gpt-4.1-nano"
+        )
+    if st.button("Initialize Model"):
+        try:
+            response = requests.post(
+                f"{BACKEND_URL}/initialize",
+                json={"model_name": model_name}
+            )
+            if response.status_code == 200:
+                st.success("Model initialized successfully")
+            else:
+                st.error(f"Initialization failed: {response.json()}")
+        except Exception as e:
+            st.error(f"Connection error: {str(e)}")
+
+# Function to get response from backend
+def get_backend_response(question):
+    try:
+        response = requests.post(
+            f"{BACKEND_URL}/query",
+            json={
+                "question": question
+            }
+        )
+        if response.status_code == 200:
+            return response.json()["response"]
+        else:
+            return f"Error: {response.json().get('detail', 'Unknown error')}"
+    except Exception as e:
+        return f"Connection error: {str(e)}"
+
+# Main chat interface
+st.title("Rahalah - Travel Assistant ")
+
+# Display chat messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Accept user input
-if prompt := st.chat_input("What is up?"):
+# Chat input
+if prompt := st.chat_input("What would you like to ask?"):
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
-    # Display user message in chat message container
+    
+    # Display user message
     with st.chat_message("user"):
         st.markdown(prompt)
-
-    # Display assistant response in chat message container
+    
+    # Display assistant response
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
         full_response = ""
-        assistant_response = random.choice(
-            [
-                "Hello there! How can I assist you today?",
-                "Hi, human! Is there anything I can help you with?",
-                "Do you need help?",
-            ]
-        )
-        # Simulate stream of response with milliseconds delay
-        for chunk in assistant_response.split():
-            full_response += chunk + " "
-            time.sleep(0.05)
-            # Add a blinking cursor to simulate typing
-            message_placeholder.markdown(full_response + "▌")
+        
+        # Get response based on selected provider
+        full_response = get_backend_response(prompt)
+
+        
+        # Display response
         message_placeholder.markdown(full_response)
+    
     # Add assistant response to chat history
     st.session_state.messages.append({"role": "assistant", "content": full_response})
