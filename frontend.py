@@ -10,7 +10,7 @@ from langchain.chains import LLMChain
 from langchain_community.llms import Ollama
 
 # Configuration - update with your backend URL
-BACKEND_URL = "http://localhost:8000"  # Change if your backend is hosted elsewhere
+BACKEND_URL = "https://0vgnzwkttj4u66-8000.proxy.runpod.net/"  # Change if your backend is hosted elsewhere
 
 # Initialize Streamlit app
 st.set_page_config(
