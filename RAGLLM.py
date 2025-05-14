@@ -1,17 +1,17 @@
 import os
 from pymongo import MongoClient
 import chromadb
-from chromadb.errors import DuplicateIDError
 from chromadb.utils import embedding_functions
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline  # For using open-source LLMs
 from DocumentManagement.NormalizeArabicText import preprocess_arabic_text
-import arabic_reshaper
-from bidi.algorithm import get_display
-from env import MONGODB_URI, DATABASE_NAME, COLLECTION_NAME, CHROMA_COLLECTION_NAME, HF_TOKEN,OPENAI_API_KEY, TEXT_FILE_DIRECTORY,CHROMA_PATH
-from langchain.llms import HuggingFacePipeline
-#from petals import AutoDistributedModelForCausalLM
-from huggingface_hub import InferenceClient
 from openai import OpenAI
+#import arabic_reshaper
+#from bidi.algorithm import get_display
+from env import MONGODB_URI, DATABASE_NAME, COLLECTION_NAME, CHROMA_COLLECTION_NAME, HF_TOKEN,OPENAI_API_KEY, TEXT_FILE_DIRECTORY,CHROMA_PATH
+#from langchain.llms import HuggingFacePipeline
+#from petals import AutoDistributedModelForCausalLM
+#from huggingface_hub import InferenceClient
+
 
 class RAGLLM:
     def __init__(self, token=HF_TOKEN, text_file_directory=TEXT_FILE_DIRECTORY, openai_api_key=OPENAI_API_KEY):
