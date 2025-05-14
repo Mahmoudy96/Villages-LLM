@@ -128,7 +128,7 @@ class RAGLLM:
         Give the answer as a mongodb query in the format
         {{"fieldname":"value"}}
         """
-        print(f"Query Translation Prompt: {prompt}")
+        #print(f"Query Translation Prompt: {prompt}")
         translated_query = self.query_translator(prompt, max_length=2000)[0]['generated_text']
         return translated_query.strip()
     
