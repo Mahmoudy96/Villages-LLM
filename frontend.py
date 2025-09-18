@@ -4,7 +4,7 @@ import requests  # Add this import
 
 # Configuration - update with your backend URL
 BACKEND_URL = "http://localhost:8000"  # Change if your backend is hosted elsewhere
-BACKEND_URL = "https://0vgnzwkttj4u66-8000.proxy.runpod.net/"  # Change if your backend is hosted elsewhere
+#BACKEND_URL = "https://0vgnzwkttj4u66-8000.proxy.runpod.net/"  # Change if your backend is hosted elsewhere
 # Initialize Streamlit app
 st.set_page_config(
     page_title="RAG LLM Chatbot",
@@ -62,13 +62,20 @@ with st.sidebar:
     # else:
     model_name = st.text_input(
             "Backend Model Name",
-             value="gpt-4.1-nano"
+             value="gpt-4.1-mini"
         )
+    embedding_model = st.text_input(
+        "Embedding Model",
+        value="laBSE"
+    )
     if st.button("Initialize Model"):
         try:
             response = requests.post(
                 f"{BACKEND_URL}/initialize",
-                json={"model_name": model_name}
+                json={"model_name": model_name,
+                      "embedding_model": embedding_model,
+                      "chunk_size": 800,
+                      "chunk_overlap": 80}
             )
             if response.status_code == 200:
                 st.success("Model initialized successfully")
@@ -83,7 +90,8 @@ def get_backend_response(question):
         response = requests.post(
             f"{BACKEND_URL}/query",
             json={
-                "question": question
+                "question": question,
+                "session_id": st.session_state.get("session_id", "default_session")
             }
         )
         if response.status_code == 200:
@@ -94,7 +102,8 @@ def get_backend_response(question):
         return f"Connection error: {str(e)}"
 
 # Main chat interface
-st.title("Rahalah - Travel Assistant ")
+st.title("Rahalah - رحالة")
+st.subheader("مياومياو 🤖")
 
 # Display chat messages
 for message in st.session_state.messages:

@@ -174,5 +174,7 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-./env.py
-env.py
+test_embeddings.ipynb
+
+chroma_data/
+chroma_data2/
