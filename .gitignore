@@ -178,3 +178,6 @@ test_embeddings.ipynb
 
 chroma_data/
 chroma_data2/
+
+.streamlit/secrets.toml
+*.toml

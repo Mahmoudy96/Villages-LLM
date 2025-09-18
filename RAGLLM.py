@@ -8,7 +8,7 @@ from chromadb.utils import embedding_functions
 from transformers import pipeline
 from openai import OpenAI
 from env import MONGODB_URI, DATABASE_NAME, COLLECTION_NAME, CHROMA_COLLECTION_NAME, HF_TOKEN, OPENAI_API_KEY, TEXT_FILE_DIRECTORY, CHROMA_PATH
-local_model_path = "./models/LaBSE"
+#local_model_path = "./models/LaBSE"
 
 class MongoDBManager:
     def __init__(self, embedding_fn, mongo_uri=MONGODB_URI, database_name=DATABASE_NAME, collection_name=COLLECTION_NAME, ):
@@ -231,12 +231,12 @@ class LLMChatbot:
 class RAGSystem:
     def __init__(self, embedding_model="laBSE"):
         self.embedding_model = embedding_model
-        if os.path.exists(local_model_path):
-            print("Using local model path for embedding.")
-            self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=local_model_path)
-        else:
-            print("Local model path not found. Using Hugging Face model.")
-            self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=embedding_model,use_auth_token=HF_TOKEN)
+        #if os.path.exists(local_model_path):
+        #    print("Using local model path for embedding.")
+        #    self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=local_model_path)
+        #else:
+            #print("Local model path not found. Using Hugging Face model.")
+        self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=embedding_model,use_auth_token=HF_TOKEN)
         self.mongo_manager = MongoDBManager(self.embedding_fn)
         self.vector_db_manager = VectorDBManager(self.embedding_fn)
         self.chatbot = LLMChatbot()

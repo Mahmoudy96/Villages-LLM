@@ -4,11 +4,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 MONGODB_URI=os.getenv("MONGODB_URI")
-DATABASE_NAME =os.getenv("DATABASE_NAME")
-COLLECTION_NAME =os.getenv("COLLECTION_NAME")
-CHROMA_COLLECTION_NAME=os.getenv("CHROMA_COLLECTION_NAME")
-TEXT_FILE_DIRECTORY=os.getenv("TEXT_FILE_DIRECTORY")
+DATABASE_NAME = "Villages"
+COLLECTION_NAME = "villageStatistics"
+CHROMA_COLLECTION_NAME = "VillageDocuments"
+TEXT_FILE_DIRECTORY = "./Data/Documents"
+CHROMA_PATH = "./chroma_data"
 HF_TOKEN=os.getenv("HF_TOKEN")
-HUGGINGFACEHUB_API_TOKEN=os.getenv("HUGGINGFACEHUB_API_TOKEN")  
-CHROMA_PATH=os.getenv("CHROMA_PATH")        
 OPENAI_API_KEY=os.getenv("OPENAI_API_KEY")  
+BACKEND_URL=os.getenv("BACKEND_URL")

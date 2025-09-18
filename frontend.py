@@ -2,9 +2,21 @@ import os
 import streamlit as st
 import requests  # Add this import
 
-# Configuration - update with your backend URL
-BACKEND_URL = "http://localhost:8000"  # Change if your backend is hosted elsewhere
-#BACKEND_URL = "https://0vgnzwkttj4u66-8000.proxy.runpod.net/"  # Change if your backend is hosted elsewhere
+def get_backend_url():
+    try:
+        if hasattr(st, 'secrets') and st.secrets.get("BACKEND_URL"):
+            return st.secrets["BACKEND_URL"]
+    except:
+        pass
+    
+    env_url = os.environ.get("BACKEND_URL")
+    if env_url:
+        return env_url
+    
+    return "http://127.0.0.1:8080"
+
+BACKEND_URL = get_backend_url()
+
 # Initialize Streamlit app
 st.set_page_config(
     page_title="RAG LLM Chatbot",
@@ -29,35 +41,7 @@ with st.sidebar:
             st.error("❌ Backend connection failed")
     except:
         st.error("❌ Backend connection failed")
-    
-    # # RAG toggle
-    # rag_enabled = st.checkbox("Enable RAG", value=True)
-    
-    # # Model selection
-    # model_provider = st.radio(
-    #     "Choose LLM Provider",
-    #     ["Backend (FastAPI)", "HuggingFace Hub", "Ollama"],
-    #     index=0
-    # )
-    
-    # Common parameters
-    temperature = st.slider("Temperature", 0.0, 1.0, 0.7)
-    max_length = st.number_input("Max Length", 100, 2000, 500)
-    
-    # # HuggingFace specific settings
-    # if model_provider == "HuggingFace Hub":
-    #     repo_id = st.text_input(
-    #         "Model Repository ID",
-    #         value="google/gemma-2b"
-    #     )
-    
-    # # Ollama specific settings
-    # elif model_provider == "Ollama":
-    #     ollama_model = st.text_input(
-    #         "Ollama Model Name",
-    #         value="mistral"
-    #     )
-    
+        
     # # Backend specific settings
     # else:
     model_name = st.text_input(
