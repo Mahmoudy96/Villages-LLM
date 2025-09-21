@@ -229,14 +229,14 @@ class LLMChatbot:
             return f"Error generating response: {str(e)}"
 
 class RAGSystem:
-    def __init__(self, embedding_model="laBSE"):
+    def __init__(self, embedding_model="LaBSE"):
         self.embedding_model = embedding_model
         #if os.path.exists(local_model_path):
         #    print("Using local model path for embedding.")
         #    self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=local_model_path)
         #else:
             #print("Local model path not found. Using Hugging Face model.")
-        self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=embedding_model,use_auth_token=HF_TOKEN)
+        self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=embedding_model,token=HF_TOKEN)
         self.mongo_manager = MongoDBManager(self.embedding_fn)
         self.vector_db_manager = VectorDBManager(self.embedding_fn)
         self.chatbot = LLMChatbot()
