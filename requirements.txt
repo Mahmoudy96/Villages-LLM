@@ -1,7 +1,7 @@
 chromadb==0.6.3
 fastapi==0.116.2
 langchain_community==0.3.29
-numpy<2
+numpy==2.2.3
 openai==1.107.3
 pandas==2.3.2
 pdfminer.six==20250324
