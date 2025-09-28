@@ -7,11 +7,10 @@ from chromadb.config import Settings
 from chromadb.utils import embedding_functions
 from transformers import pipeline
 from openai import OpenAI
-from env import MONGODB_URI, DATABASE_NAME, COLLECTION_NAME, CHROMA_COLLECTION_NAME, HF_TOKEN, OPENAI_API_KEY, TEXT_FILE_DIRECTORY, CHROMA_PATH
-#local_model_path = "./models/LaBSE"
+from env import MONGODB_URI, DATABASE_NAME, COLLECTION_NAME, CHROMA_COLLECTION_NAME, HF_TOKEN, OPENAI_API_KEY, CHROMA_PATH
 
 class MongoDBManager:
-    def __init__(self, embedding_fn, mongo_uri=MONGODB_URI, database_name=DATABASE_NAME, collection_name=COLLECTION_NAME, ):
+    def __init__(self, embedding_fn, mongo_uri=MONGODB_URI, database_name=DATABASE_NAME, collection_name=COLLECTION_NAME):
         self.mongo_client = MongoClient(mongo_uri)
         self.db = self.mongo_client[database_name]
         self.collection = self.db[collection_name]
@@ -55,10 +54,6 @@ class MongoDBManager:
             n_results=1
         )
         return results['documents'][0][0]
-        #name_embeddings = self.embedding_fn.encode(self.names)
-        #query_embedding = self.embedding_fn.encode([query])
-        #similarities = np.dot(query_embedding, name_embeddings.T)
-        #return self.names[np.argmax(similarities)]
 
     def _generate_translation_prompt(self):
         """Generate the prompt for translating natural language to MongoDB query"""
@@ -87,7 +82,7 @@ class MongoDBManager:
                     {"role": "system", "content": "You are a helpful assistant that translates natural language to MongoDB queries."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3,  # Lower temperature for more deterministic queries
+                temperature=0.3,
                 max_tokens=500
             )
             return response.choices[0].message.content
@@ -135,43 +130,16 @@ class MongoDBManager:
 
 class VectorDBManager:
     def __init__(self, embedding_fn, chroma_collection_name=CHROMA_COLLECTION_NAME, 
-                 chroma_path=CHROMA_PATH, text_file_directory=TEXT_FILE_DIRECTORY):
+                 chroma_path=CHROMA_PATH):
+        # Note: No text_file_directory needed here - we only read from pre-built DB
         self.chroma_client = chromadb.PersistentClient(path=chroma_path, settings=Settings(allow_reset=True))
         self.chroma_collection = self.chroma_client.get_or_create_collection(
             chroma_collection_name, 
             embedding_function=embedding_fn
         )
-        self.text_file_directory = text_file_directory
-
-    def split_text(self, text,chunk_size , chunk_overlap):
-        chunks = []
-        start = 0
-        while start < len(text):
-            end = start + chunk_size
-            chunks.append(text[start:end])
-            start = end - chunk_overlap
-        return chunks
-
-    def load_and_chunk_text_to_chroma(self,chunk_size=800, chunk_overlap=80):
-        for file_idx, file_name in enumerate(os.listdir(self.text_file_directory)):
-            if not file_name.endswith(".txt"):
-                continue
-            file_path = os.path.join(self.text_file_directory, file_name)
-            with open(file_path, "r", encoding="utf-8") as file:
-                text_data = self.split_text(file.read(),chunk_size,chunk_overlap)
-            existing_ids = set(self.chroma_collection.get()["ids"])
-            for idx, text in enumerate(text_data):
-                full_idx = str(f'{file_idx}_{idx}')
-                if full_idx in existing_ids:
-                    continue
-                preprocessed_text = f'{file_name[:-4]} - {text}'
-                self.chroma_collection.add(
-                    documents=[preprocessed_text],
-                    metadatas=[{"source": "text_file"}],
-                    ids=[full_idx]
-                )
 
     def query_text(self, query_text, n_results=5):
+        """Query the pre-built ChromaDB"""
         return self.chroma_collection.query(
             query_texts=[query_text],
             n_results=n_results
@@ -185,7 +153,7 @@ class LLMChatbot:
     def set_model(self, model_name):
         self.model_name = model_name
 
-    def generate_response(self, mongo_data, chroma_data, user_query,history_summary=None):
+    def generate_response(self, mongo_data, chroma_data, user_query, history_summary=None):
         prompt = f"""
         You are an AI assistant that answers questions based on the following data:
         {history_summary if history_summary else "No previous conversation history."}
@@ -231,38 +199,36 @@ class LLMChatbot:
 class RAGSystem:
     def __init__(self, embedding_model="LaBSE"):
         self.embedding_model = embedding_model
-        #if os.path.exists(local_model_path):
-        #    print("Using local model path for embedding.")
-        #    self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=local_model_path)
-        #else:
-            #print("Local model path not found. Using Hugging Face model.")
-        self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=embedding_model,token=HF_TOKEN)
+        self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name=embedding_model, 
+            token=HF_TOKEN
+        )
         self.mongo_manager = MongoDBManager(self.embedding_fn)
-        self.vector_db_manager = VectorDBManager(self.embedding_fn)
+        self.vector_db_manager = VectorDBManager(self.embedding_fn)  # Now only reads from existing DB
         self.chatbot = LLMChatbot()
 
-    def initialize_components(self, use_openAI=True,chunk_size=800, chunk_overlap=80):
+    def initialize_components(self, use_openAI=True):
+        """Initialize components - NO data loading here!"""
         self.mongo_manager.initialize_query_translator(use_openAI=use_openAI, openai_client=self.chatbot.openai_client)
-        self.vector_db_manager.load_and_chunk_text_to_chroma(chunk_size, chunk_overlap)
 
-    def process_query(self, query,summary=None):
+    def process_query(self, query, summary=None):
         # Get data from MongoDB
         mongo_data = self.mongo_manager.get_documents_by_query(query)
         print(f"MongoDB Data: {mongo_data}")
-        # Get relevant text chunks from vector DB
+        
+        # Get relevant text chunks from pre-built vector DB
         chroma_results = self.vector_db_manager.query_text(query)
         chroma_data = chroma_results["documents"][0]
         print(f"Chroma Data: {chroma_data}")
+        
         # Generate response
-        return self.chatbot.generate_response(mongo_data, chroma_data, query,summary)
+        return self.chatbot.generate_response(mongo_data, chroma_data, query, summary)
 
 if __name__ == "__main__":
     rag_system = RAGSystem()
-
-    rag_system.initialize_components(use_openAI=True, chunk_size=800, chunk_overlap=80)
+    rag_system.initialize_components(use_openAI=True)
     rag_system.chatbot.set_model("gpt-4.1-mini")
 
     query = "اعطيني معلومات عن حياة سكان الزيب"
-
     response = rag_system.process_query(query)
     print(response)

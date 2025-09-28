@@ -181,3 +181,4 @@ chroma_data2/
 
 .streamlit/secrets.toml
 *.toml
+RAGLLMOLD.py

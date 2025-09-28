@@ -22,8 +22,6 @@ app.add_middleware(
 class InitializeRequest(BaseModel):
     model_name: str = "gpt-4"
     embedding_model: str = "laBSE"
-    chunk_size: int = 800
-    chunk_overlap: int = 80
     #db_config: Optional[dict] = None
 
 class QueryRequest(BaseModel):
@@ -58,7 +56,7 @@ def generate_history_summary(history: List[ChatHistoryItem]) -> str:
 async def startup_event():
     """Initialize the RAG system when the app starts"""
     try:
-        rag_llm.initialize_components(use_openAI=True, chunk_size=800, chunk_overlap=80)
+        rag_llm.initialize_components(use_openAI=True)
         print("RAG system initialized successfully")
     except Exception as e:
         print(f"Initialization failed: {str(e)}")
@@ -70,9 +68,7 @@ async def initialize(request: InitializeRequest):
         #global rag_system
         rag_llm = RAGSystem(embedding_model=request.embedding_model)
         rag_llm.initialize_components(
-            use_openAI=True,
-            chunk_size=request.chunk_size,
-            chunk_overlap=request.chunk_overlap
+            use_openAI=True
         )
         rag_llm.chatbot.set_model(request.model_name)
         return {"status": "success"}
