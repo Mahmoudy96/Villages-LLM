@@ -34,7 +34,7 @@ class BackendAPIClient:
             response = requests.post(
                 f"{self.base_url}/query",
                 json={"question": question, "session_id": session_id},
-                timeout=30
+                timeout=60
             )
             
             if response.status_code == 200:

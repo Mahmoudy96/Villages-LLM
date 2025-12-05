@@ -87,7 +87,7 @@ async def query(request: QueryRequest):
         history_summary = generate_history_summary(chat_history[request.session_id])
         
         # Get response from RAG system
-        response = rag_llm.process_query(request.question, summary=history_summary)
+        response = rag_llm.process_query(request.question, summary=history_summary,stream=True)
         
         # Store the interaction in history
         chat_history[request.session_id].append(

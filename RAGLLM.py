@@ -153,7 +153,7 @@ class LLMChatbot:
     def set_model(self, model_name):
         self.model_name = model_name
 
-    def generate_response(self, mongo_data, chroma_data, user_query, history_summary=None):
+    def generate_response(self, mongo_data, chroma_data, user_query, history_summary=None, stream=False, on_token=None):
         prompt = f"""
         You are an AI assistant that answers questions based on the following data:
         {history_summary if history_summary else "No previous conversation history."}
@@ -183,16 +183,55 @@ class LLMChatbot:
         print("Prompt:", prompt)
 
         try:
-            response = self.openai_client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant that answers questions based on provided data."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-                max_tokens=2000
-            )
-            return response.choices[0].message.content
+            if not stream:
+                response = self.openai_client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant that answers questions based on provided data."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=2000
+                )
+                return response.choices[0].message.content
+            else:
+                # Streaming mode
+                full_text = ""
+                stream_resp = self.openai_client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant that answers questions based on provided data."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=2000,
+                    stream=True
+                )
+                # stream_resp is an iterator of events
+                for event in stream_resp:
+                    try:
+                        choice = event.choices[0]
+                        delta = getattr(choice, "delta", None) or choice.get("delta", {})
+                        token = None
+                        # new SDKs may use 'delta' with 'content', older may differ slightly
+                        if isinstance(delta, dict):
+                            token = delta.get("content")
+                        else:
+                            token = getattr(delta, "get", lambda k, d=None: None)("content")
+                        if token:
+                            full_text += token
+                            if on_token:
+                                try:
+                                    on_token(token)
+                                except Exception:
+                                    pass
+                            else:
+                                print(token, end="", flush=True)
+                    except Exception:
+                        # ignore malformed events
+                        continue
+                print("")  # newline after streaming finished
+                return full_text
         except Exception as e:
             return f"Error generating response: {str(e)}"
 
@@ -211,7 +250,7 @@ class RAGSystem:
         """Initialize components - NO data loading here!"""
         self.mongo_manager.initialize_query_translator(use_openAI=use_openAI, openai_client=self.chatbot.openai_client)
 
-    def process_query(self, query, summary=None):
+    def process_query(self, query, summary=None, stream=False, on_token=None):
         # Get data from MongoDB
         mongo_data = self.mongo_manager.get_documents_by_query(query)
         print(f"MongoDB Data: {mongo_data}")
@@ -221,8 +260,8 @@ class RAGSystem:
         chroma_data = chroma_results["documents"][0]
         print(f"Chroma Data: {chroma_data}")
         
-        # Generate response
-        return self.chatbot.generate_response(mongo_data, chroma_data, query, summary)
+        # Generate response (supports streaming)
+        return self.chatbot.generate_response(mongo_data, chroma_data, query, summary, stream=stream, on_token=on_token)
 
 if __name__ == "__main__":
     rag_system = RAGSystem()
@@ -230,5 +269,12 @@ if __name__ == "__main__":
     rag_system.chatbot.set_model("gpt-4.1-mini")
 
     query = "اعطيني معلومات عن حياة سكان الزيب"
-    response = rag_system.process_query(query)
+
+    # Example: stream to console
+    response = rag_system.process_query(query, stream=True)
+    # If you prefer a callback:
+    # def handle_token(t): print(t, end="", flush=True)
+    # response = rag_system.process_query(query, stream=True, on_token=handle_token)
+
+    print("Final response (collected):")
     print(response)
