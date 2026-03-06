@@ -1,18 +1,21 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Dict, List
 from datetime import datetime
-
+import asyncio
+import uuid
+import os
 # Assuming your RAGLLM class is in a module called rag_llm.py
 from RAGLLM import RAGSystem
+from env import CORS_ORIGINS
 
 app = FastAPI(title="RAG LLM API")
 
-# CORS configuration (needed for frontend-backend communication)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust this in production!
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -20,9 +23,8 @@ app.add_middleware(
 
 # Request models
 class InitializeRequest(BaseModel):
-    model_name: str = "gpt-4"
+    model_name: str = "gpt-4o-mini"  # Fixed: Changed to valid model name (was "gpt-4")
     embedding_model: str = "laBSE"
-    #db_config: Optional[dict] = None
 
 class QueryRequest(BaseModel):
     question: str
@@ -38,7 +40,6 @@ rag_llm = RAGSystem()
 chat_history: Dict[str, List[ChatHistoryItem]] = {}  # {session_id: [messages]}
 
 def generate_history_summary(history: List[ChatHistoryItem]) -> str:
-
     """Generate a concise summary of the chat history"""
     if not history:
         return "No previous conversation history."
@@ -56,20 +57,28 @@ def generate_history_summary(history: List[ChatHistoryItem]) -> str:
 async def startup_event():
     """Initialize the RAG system when the app starts"""
     try:
+        print("[STARTUP] Initializing RAG system...")
         rag_llm.initialize_components(use_openAI=True)
-        print("RAG system initialized successfully")
+        print("[STARTUP] RAG system initialized successfully")
     except Exception as e:
-        print(f"Initialization failed: {str(e)}")
+        print(f"[STARTUP ERROR] Initialization failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+@app.post("/session")
+async def create_session():
+    """Create a new chat session with a unique session ID"""
+    session_id = str(uuid.uuid4())
+    chat_history[session_id] = []
+    return {"session_id": session_id}
 
 @app.post("/initialize")
 async def initialize(request: InitializeRequest):
     """Re-initialize with different parameters"""
     try:
-        #global rag_system
+        global rag_llm
         rag_llm = RAGSystem(embedding_model=request.embedding_model)
-        rag_llm.initialize_components(
-            use_openAI=True
-        )
+        rag_llm.initialize_components(use_openAI=True)
         rag_llm.chatbot.set_model(request.model_name)
         return {"status": "success"}
     except Exception as e:
@@ -77,7 +86,7 @@ async def initialize(request: InitializeRequest):
 
 @app.post("/query")
 async def query(request: QueryRequest):
-    """Handle a query with chat history"""
+    """Handle a query without streaming (returns full response)"""
     try:
         # Get or create chat history for this session
         if request.session_id not in chat_history:
@@ -86,8 +95,8 @@ async def query(request: QueryRequest):
         # Generate history summary
         history_summary = generate_history_summary(chat_history[request.session_id])
         
-        # Get response from RAG system
-        response = rag_llm.process_query(request.question, summary=history_summary,stream=True)
+        # Get response from RAG system (non-streaming)
+        response = rag_llm.process_query_sync(request.question, summary=history_summary, stream=False)
         
         # Store the interaction in history
         chat_history[request.session_id].append(
@@ -99,10 +108,67 @@ async def query(request: QueryRequest):
         )
         
         # Ensure we don't keep too much history
-        if len(chat_history[request.session_id]) > 10:  # Keep last 10 messages
+        if len(chat_history[request.session_id]) > 10:
             chat_history[request.session_id] = chat_history[request.session_id][-10:]
         
         return {"response": response}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/stream")
+async def stream_query(request: QueryRequest):
+    """Stream response tokens using Server-Sent Events (SSE)"""
+    try:
+        # Get or create chat history for this session
+        if request.session_id and request.session_id not in chat_history:
+            chat_history[request.session_id] = []
+        
+        # Generate history summary
+        history_summary = generate_history_summary(chat_history.get(request.session_id, []))
+        
+        # Queue to collect tokens
+        queue: asyncio.Queue = asyncio.Queue()
+        
+        async def on_token(token):
+            """Callback to push tokens into queue"""
+            await queue.put(token)
+        
+        async def run_query_and_close():
+            """Run the async query and signal when done"""
+            try:
+                full_response = await rag_llm.process_query(request.question, summary=history_summary, stream=True, on_token=on_token)
+                # Store in chat history if session_id provided
+                if request.session_id:
+                    chat_history[request.session_id].append(
+                        ChatHistoryItem(
+                            question=request.question,
+                            answer=full_response,
+                            timestamp=datetime.now().isoformat()
+                        )
+                    )
+                    if len(chat_history[request.session_id]) > 10:
+                        chat_history[request.session_id] = chat_history[request.session_id][-10:]
+            except Exception as e:
+                await queue.put(f"ERROR: {str(e)}")
+            finally:
+                await queue.put(None)  # Signal end of stream
+        
+        # Start background task
+        asyncio.create_task(run_query_and_close())
+        
+        async def event_generator():
+            """Generate SSE events from queued tokens"""
+            while True:
+                token = await queue.get()
+                if token is None:
+                    break
+                # Send token as-is to preserve spaces and formatting
+                # Replace newlines with a special marker to preserve them in SSE
+                token_str = str(token).replace('\n', '\\n')
+                yield f"data: {token_str}\n\n"
+            yield "event: done\ndata: \n\n"
+        
+        return StreamingResponse(event_generator(), media_type="text/event-stream")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

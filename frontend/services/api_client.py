@@ -1,49 +1,57 @@
 import requests
-from typing import Dict, Any
+import streamlit as st
 
 class BackendAPIClient:
-    def __init__(self, base_url: str):
-        self.base_url = base_url
+    def __init__(self, base_url="http://localhost:8080"):
+        self.base_url = base_url.rstrip("/")
     
     def health_check(self) -> bool:
-        """Check if backend is healthy"""
+        """Check if backend is reachable"""
         try:
-            response = requests.get(f"{self.base_url}/health", timeout=5)
+            response = requests.get(f"{self.base_url}/health", timeout=3)
             return response.status_code == 200
-        except:
+        except Exception:
             return False
     
-    def initialize_model(self, model_config: Dict[str, Any]) -> Dict[str, Any]:
-        """Initialize the model"""
+    def query(self, question: str, session_id: str):
+        """Send a query to the backend (non-streaming)"""
+        url = f"{self.base_url}/query"
+        payload = {"question": question, "session_id": session_id}
         try:
-            response = requests.post(
-                f"{self.base_url}/initialize",
-                json=model_config,
-                timeout=30
-            )
-            return {
-                "success": response.status_code == 200,
-                "message": response.text if response.status_code != 200 else "Model initialized successfully"
-            }
+            response = requests.post(url, json=payload, timeout=60)
+            response.raise_for_status()
+            return response.json().get("response", "No response received")
         except Exception as e:
-            return {"success": False, "message": f"Connection error: {str(e)}"}
+            return f"Error: {str(e)}"
     
-    def query(self, question: str, session_id: str = "default_session") -> str:
-        """Send query to backend"""
+    def stream_query(self, question: str, session_id: str):
+        """Stream a query from the backend (yields tokens).
+        Sends JSON body to match FastAPI QueryRequest Pydantic model.
+        """
+        url = f"{self.base_url}/stream"
+        payload = {"question": question, "session_id": session_id}
+        headers = {"Content-Type": "application/json"}
         try:
-            response = requests.post(
-                f"{self.base_url}/query",
-                json={"question": question, "session_id": session_id},
-                timeout=60
-            )
-            
-            if response.status_code == 200:
-                return response.json()["response"]
-            else:
-                return f"❌ **Error:** {response.json().get('detail', 'Unknown error')}"
-        except requests.exceptions.Timeout:
-            return "❌ **Error:** Request timed out. Please try again."
-        except requests.exceptions.ConnectionError:
-            return "❌ **Error:** Cannot connect to backend server."
+            # POST JSON body and stream the response
+            with requests.post(url, json=payload, headers=headers, stream=True, timeout=120) as resp:
+                # Helpful debug if backend rejects the body
+                if resp.status_code == 422:
+                    # print backend validation error for debugging
+                    print("Backend 422 response:", resp.text)
+                    resp.raise_for_status()
+                resp.raise_for_status()
+                for raw in resp.iter_lines(decode_unicode=True):
+                    if not raw:
+                        continue
+                    line = raw.strip()
+                    # ignore SSE control events
+                    if line.startswith("event:"):
+                        continue
+                    if line.startswith("data:"):
+                        # Preserve leading/trailing spaces in tokens (critical for word boundaries)
+                        content = line[6:] if len(line) > 5 and line[5] == ' ' else line[5:]
+                        content = content.replace('\\n', '\n')
+                        if content:
+                            yield content
         except Exception as e:
-            return f"❌ **Connection error:**"# {str(e)}"
+            yield f"Error: {str(e)}"

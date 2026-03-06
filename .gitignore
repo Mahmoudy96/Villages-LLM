@@ -183,3 +183,4 @@ chroma_data2/
 *.toml
 RAGLLMOLD.py
 WikipediaScraper.py
+test_backend_startup.py

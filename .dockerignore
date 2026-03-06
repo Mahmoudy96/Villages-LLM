@@ -1,0 +1,15 @@
+# Exclude from Docker build context
+.git
+.gitignore
+__pycache__
+*.pyc
+.venv
+venv
+.env
+.streamlit
+frontend
+*.md
+run_backend.py
+run_frontend.py
+chroma_data2
+test_embeddings.ipynb

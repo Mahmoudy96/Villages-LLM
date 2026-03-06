@@ -8,15 +8,35 @@ from chromadb.utils import embedding_functions
 from transformers import pipeline
 from openai import OpenAI
 from env import MONGODB_URI, DATABASE_NAME, COLLECTION_NAME, CHROMA_COLLECTION_NAME, HF_TOKEN, OPENAI_API_KEY, CHROMA_PATH
+import asyncio
+from functools import lru_cache
+import hashlib
 
 class MongoDBManager:
     def __init__(self, embedding_fn, mongo_uri=MONGODB_URI, database_name=DATABASE_NAME, collection_name=COLLECTION_NAME):
-        self.mongo_client = MongoClient(mongo_uri)
-        self.db = self.mongo_client[database_name]
-        self.collection = self.db[collection_name]
+        self.mongo_client = None
+        self.db = None
+        self.collection = None
         self.query_translator = None
         self.current_query = None
         self.embedding_fn = embedding_fn
+        self.mongo_uri = mongo_uri
+        self.database_name = database_name
+        self.collection_name = collection_name
+        
+        # Try to connect, but don't fail if MongoDB is not available
+        if mongo_uri:
+            try:
+                self.mongo_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+                self.db = self.mongo_client[database_name]
+                self.collection = self.db[collection_name]
+                # Test connection
+                self.mongo_client.server_info()
+                print("[OK] MongoDB connected successfully")
+            except Exception as e:
+                print(f"[WARNING] MongoDB connection failed: {str(e)}")
+                print("   Continuing without MongoDB - some features may be limited")
+                self.mongo_client = None
 
     def initialize_query_translator(self, use_openAI=False, openai_client=None):
         self.openai_client = openai_client
@@ -39,26 +59,35 @@ class MongoDBManager:
 
     def _find_closest_name(self, names):
         """Vector-based name matching"""
-        chroma_client = chromadb.Client(settings=Settings(allow_reset=True))
-        chroma_collection = chroma_client.get_or_create_collection(
-            "db_names_collection",
-            embedding_function=self.embedding_fn 
-        )
-        chroma_collection.add(
-            documents=names,
-            metadatas=[{"source": "name_list"}] * len(names),
-            ids=[str(i) for i in range(len(names))]
-        )
-        results = chroma_collection.query(
-            query_texts=[self.current_query],
-            n_results=1
-        )
-        return results['documents'][0][0]
+        if not names:
+            return None
+        try:
+            chroma_client = chromadb.Client(settings=Settings(allow_reset=True))
+            chroma_collection = chroma_client.get_or_create_collection(
+                "db_names_collection",
+                embedding_function=self.embedding_fn 
+            )
+            chroma_collection.add(
+                documents=names,
+                metadatas=[{"source": "name_list"}] * len(names),
+                ids=[str(i) for i in range(len(names))]
+            )
+            results = chroma_collection.query(
+                query_texts=[self.current_query],
+                n_results=1
+            )
+            return results['documents'][0][0] if results['documents'] and results['documents'][0] else names[0]
+        except Exception as e:
+            print(f"[WARNING] Error in _find_closest_name: {str(e)}")
+            return names[0] if names else None
 
     def _generate_translation_prompt(self):
         """Generate the prompt for translating natural language to MongoDB query"""
+        if not self.collection:
+            raise ValueError("MongoDB collection not available")
+        
         names = self.collection.distinct("metadata.name")
-        closest_name = self._find_closest_name(names)
+        closest_name = self._find_closest_name(names) if names else "unknown"
 
         random_object = self.collection.find_one()
         fields = self.get_field_names(random_object)
@@ -77,13 +106,12 @@ class MongoDBManager:
         """Use OpenAI to translate natural language to MongoDB query"""
         try:
             response = self.openai_client.chat.completions.create(
-                model="gpt-4.1-mini",
+                model="gpt-5-nano",
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant that translates natural language to MongoDB queries."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3,
-                max_tokens=500
+                max_completion_tokens=8000
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -124,8 +152,13 @@ class MongoDBManager:
 
     def get_documents_by_query(self, natural_language_query):
         """Complete pipeline: translate natural language query and execute MongoDB query"""
+        if not self.mongo_client or not self.collection:
+            print("[WARNING] MongoDB not available, returning empty results")
+            return []
+        
         self._set_query(natural_language_query)
         mongo_query = self._translate_to_mongo_query()
+        #print("mongo_query:", mongo_query)
         return self._execute_query(mongo_query)
 
 class VectorDBManager:
@@ -146,14 +179,14 @@ class VectorDBManager:
         )
 
 class LLMChatbot:
-    def __init__(self, model_name="gpt-4.1-mini", openai_api_key=OPENAI_API_KEY):
+    def __init__(self, model_name="gpt-4o-mini", openai_api_key=OPENAI_API_KEY):  # Fixed: Changed from invalid "gpt-5-nano" to valid model
         self.model_name = model_name
         self.openai_client = OpenAI(api_key=openai_api_key)
 
     def set_model(self, model_name):
         self.model_name = model_name
 
-    def generate_response(self, mongo_data, chroma_data, user_query, history_summary=None, stream=False, on_token=None):
+    async def generate_response(self, mongo_data, chroma_data, user_query, history_summary=None, stream=False, on_token=None):
         prompt = f"""
         You are an AI assistant that answers questions based on the following data:
         {history_summary if history_summary else "No previous conversation history."}
@@ -180,60 +213,60 @@ class LLMChatbot:
         Question: {user_query}
         """
         
-        print("Prompt:", prompt)
+        #print("Prompt:", prompt)
 
         try:
+            loop = asyncio.get_event_loop()
             if not stream:
-                response = self.openai_client.chat.completions.create(
-                    model=self.model_name,
-                    messages=[
-                        {"role": "system", "content": "You are a helpful assistant that answers questions based on provided data."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.7,
-                    max_tokens=2000
-                )
-                return response.choices[0].message.content
+                def sync_call():
+                    response = self.openai_client.chat.completions.create(
+                        model=self.model_name,
+                        messages=[
+                            {"role": "system", "content": "You are a helpful AI assistant."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        max_completion_tokens=8000
+                    )
+                    return response.choices[0].message.content
+                return await loop.run_in_executor(None, sync_call)
             else:
-                # Streaming mode
-                full_text = ""
-                stream_resp = self.openai_client.chat.completions.create(
-                    model=self.model_name,
-                    messages=[
-                        {"role": "system", "content": "You are a helpful assistant that answers questions based on provided data."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.7,
-                    max_tokens=2000,
-                    stream=True
-                )
-                # stream_resp is an iterator of events
-                for event in stream_resp:
-                    try:
-                        choice = event.choices[0]
-                        delta = getattr(choice, "delta", None) or choice.get("delta", {})
-                        token = None
-                        # new SDKs may use 'delta' with 'content', older may differ slightly
-                        if isinstance(delta, dict):
-                            token = delta.get("content")
-                        else:
-                            token = getattr(delta, "get", lambda k, d=None: None)("content")
-                        if token:
-                            full_text += token
-                            if on_token:
-                                try:
-                                    on_token(token)
-                                except Exception:
-                                    pass
-                            else:
+                tokens_list = []
+                def sync_stream():
+                    stream_resp = self.openai_client.chat.completions.create(
+                        model=self.model_name,
+                        messages=[
+                            {"role": "system", "content": "You are a helpful AI assistant."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        max_completion_tokens=8000,
+                        stream=True
+                    )
+                    for event in stream_resp:
+                        try:
+                            choice = event.choices[0]
+                            delta = getattr(choice, "delta", None)
+                            if delta is None:
+                                continue
+                            token = getattr(delta, "content", None)
+                            if token:
+                                tokens_list.append(token)
                                 print(token, end="", flush=True)
-                    except Exception:
-                        # ignore malformed events
-                        continue
-                print("")  # newline after streaming finished
+                        except Exception:
+                            continue
+                    print("")
+                
+                await loop.run_in_executor(None, sync_stream)
+                full_text = "".join(tokens_list)
+                if on_token:
+                    for token in tokens_list:
+                        if asyncio.iscoroutinefunction(on_token):
+                            await on_token(token)
+                        else:
+                            on_token(token)
                 return full_text
         except Exception as e:
-            return f"Error generating response: {str(e)}"
+            return f"Error: {str(e)}"
+
 
 class RAGSystem:
     def __init__(self, embedding_model="LaBSE"):
@@ -243,38 +276,64 @@ class RAGSystem:
             token=HF_TOKEN
         )
         self.mongo_manager = MongoDBManager(self.embedding_fn)
-        self.vector_db_manager = VectorDBManager(self.embedding_fn)  # Now only reads from existing DB
+        self.vector_db_manager = VectorDBManager(self.embedding_fn)
         self.chatbot = LLMChatbot()
+        self._query_cache = {}  # Simple dict cache
 
     def initialize_components(self, use_openAI=True):
-        """Initialize components - NO data loading here!"""
         self.mongo_manager.initialize_query_translator(use_openAI=use_openAI, openai_client=self.chatbot.openai_client)
 
-    def process_query(self, query, summary=None, stream=False, on_token=None):
-        # Get data from MongoDB
-        mongo_data = self.mongo_manager.get_documents_by_query(query)
-        print(f"MongoDB Data: {mongo_data}")
+    async def process_query(self, query, summary=None, stream=False, on_token=None):
+        """Async pipeline: translate query, run DB lookups (in parallel) and generate response."""
         
-        # Get relevant text chunks from pre-built vector DB
-        chroma_results = self.vector_db_manager.query_text(query)
-        chroma_data = chroma_results["documents"][0]
-        print(f"Chroma Data: {chroma_data}")
+        # Check cache first (simple optimization for identical queries)
+        cache_key = hashlib.md5(f"{query}".encode()).hexdigest()
+        if cache_key in self._query_cache:
+            cached_response = self._query_cache[cache_key]
+            if on_token and stream:
+                # Yield cached response token-by-token
+                for token in cached_response.split():
+                    if asyncio.iscoroutinefunction(on_token):
+                        await on_token(token + " ")
+                    else:
+                        on_token(token + " ")
+            return cached_response
         
-        # Generate response (supports streaming)
-        return self.chatbot.generate_response(mongo_data, chroma_data, query, summary, stream=stream, on_token=on_token)
+        loop = asyncio.get_event_loop()
+        
+        # Run MongoDB and Chroma queries in PARALLEL instead of sequentially
+        mongo_task = loop.run_in_executor(None, self.mongo_manager.get_documents_by_query, query)
+        chroma_task = loop.run_in_executor(None, self.vector_db_manager.query_text, query)
+        
+        # Wait for both to complete
+        mongo_data, chroma_results = await asyncio.gather(mongo_task, chroma_task)
+        chroma_data = chroma_results.get("documents", [[]])[0] if chroma_results else []
+        
+        # Generate response
+        response = await self.chatbot.generate_response(mongo_data, chroma_data, query, summary, stream=stream, on_token=on_token)
+        
+        # Cache the response (only cache non-streaming for simplicity)
+        if not stream:
+            self._query_cache[cache_key] = response
+            # Keep cache size bounded (max 100 entries)
+            if len(self._query_cache) > 100:
+                self._query_cache.pop(next(iter(self._query_cache)))
+        
+        return response
+
+    def process_query_sync(self, query, summary=None, stream=False, on_token=None):
+        return asyncio.run(self.process_query(query, summary=summary, stream=stream, on_token=on_token))
 
 if __name__ == "__main__":
     rag_system = RAGSystem()
     rag_system.initialize_components(use_openAI=True)
-    rag_system.chatbot.set_model("gpt-4.1-mini")
+    rag_system.chatbot.set_model("gpt-4o-mini")  # Fixed: Changed from invalid "gpt-5-nano" to valid model
 
     query = "اعطيني معلومات عن حياة سكان الزيب"
 
-    # Example: stream to console
-    response = rag_system.process_query(query, stream=True)
-    # If you prefer a callback:
-    # def handle_token(t): print(t, end="", flush=True)
-    # response = rag_system.process_query(query, stream=True, on_token=handle_token)
-
-    print("Final response (collected):")
+    #Example: stream to console using the sync wrapper
+    print("Streaming response:")
+    response = rag_system.process_query_sync(query, stream=True)
+    
+    print("\nFinal response (collected):")
     print(response)
