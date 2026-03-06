@@ -21,8 +21,8 @@ class BackendAPIClient:
             response = requests.post(url, json=payload, timeout=60)
             response.raise_for_status()
             return response.json().get("response", "No response received")
-        except Exception as e:
-            return f"Error: {str(e)}"
+        except Exception:
+            return "Service unavailable. Please try again later."
     
     def stream_query(self, question: str, session_id: str):
         """Stream a query from the backend (yields tokens).
@@ -53,5 +53,5 @@ class BackendAPIClient:
                         content = content.replace('\\n', '\n')
                         if content:
                             yield content
-        except Exception as e:
-            yield f"Error: {str(e)}"
+        except Exception:
+            yield "Service unavailable. Please try again later."

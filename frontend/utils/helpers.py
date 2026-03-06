@@ -40,5 +40,5 @@ def handle_retry_logic():
 
 def is_error_message(message_content):
     """Check if message content indicates an error"""
-    error_indicators = ["error:", "connection error:", "timed out", "cannot connect"]
+    error_indicators = ["error:", "connection error:", "timed out", "cannot connect", "service unavailable"]
     return any(indicator in message_content.lower() for indicator in error_indicators)

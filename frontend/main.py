@@ -41,7 +41,7 @@ with st.sidebar:
     st.caption(f"Session: `{st.session_state.session_id[:8]}...`")
     
     if not backend_connected:
-        st.warning("Backend offline. Start the server to chat.")
+        st.warning("Service temporarily unavailable.")
 
 # Main chat area
 if not st.session_state.messages:
