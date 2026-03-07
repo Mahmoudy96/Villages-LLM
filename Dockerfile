@@ -35,7 +35,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY backend.py RAGLLM.py env.py ./
+COPY backend.py RAGLLM.py env.py rag_logger.py ./
 COPY --from=builder /app/chroma_data ./chroma_data
 
 ENV PORT=8080

@@ -7,9 +7,15 @@ from datetime import datetime
 import asyncio
 import uuid
 import os
-# Assuming your RAGLLM class is in a module called rag_llm.py
 from RAGLLM import RAGSystem
 from env import CORS_ORIGINS
+
+try:
+    from rag_logger import setup_rag_logger, log_query_start, log_response_end, log_error
+    setup_rag_logger()
+    _LOGGING_ENABLED = True
+except ImportError:
+    _LOGGING_ENABLED = False
 
 app = FastAPI(title="RAG LLM API")
 
@@ -87,6 +93,8 @@ async def initialize(request: InitializeRequest):
 @app.post("/query")
 async def query(request: QueryRequest):
     """Handle a query without streaming (returns full response)"""
+    if _LOGGING_ENABLED:
+        log_query_start(request.session_id, request.question)
     try:
         # Get or create chat history for this session
         if request.session_id not in chat_history:
@@ -111,13 +119,20 @@ async def query(request: QueryRequest):
         if len(chat_history[request.session_id]) > 10:
             chat_history[request.session_id] = chat_history[request.session_id][-10:]
         
+        if _LOGGING_ENABLED:
+            log_response_end(request.session_id, request.question, response, success=True)
         return {"response": response}
     except Exception as e:
+        if _LOGGING_ENABLED:
+            log_response_end(request.session_id, request.question, str(e), success=False)
+            log_error("query_error", str(e), {"session_id": request.session_id, "question": request.question})
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/stream")
 async def stream_query(request: QueryRequest):
     """Stream response tokens using Server-Sent Events (SSE)"""
+    if _LOGGING_ENABLED:
+        log_query_start(request.session_id or "unknown", request.question)
     try:
         # Get or create chat history for this session
         if request.session_id and request.session_id not in chat_history:
@@ -148,7 +163,12 @@ async def stream_query(request: QueryRequest):
                     )
                     if len(chat_history[request.session_id]) > 10:
                         chat_history[request.session_id] = chat_history[request.session_id][-10:]
+                if _LOGGING_ENABLED:
+                    log_response_end(request.session_id or "unknown", request.question, full_response, success=True)
             except Exception as e:
+                if _LOGGING_ENABLED:
+                    log_response_end(request.session_id or "unknown", request.question, str(e), success=False)
+                    log_error("stream_error", str(e), {"session_id": request.session_id, "question": request.question})
                 await queue.put(f"ERROR: {str(e)}")
             finally:
                 await queue.put(None)  # Signal end of stream

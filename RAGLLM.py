@@ -12,6 +12,12 @@ import asyncio
 from functools import lru_cache
 import hashlib
 
+try:
+    from rag_logger import log_mongo_query, log_chroma_result, log_llm_context, log_error
+    _LOGGING_ENABLED = True
+except ImportError:
+    _LOGGING_ENABLED = False
+
 class MongoDBManager:
     def __init__(self, embedding_fn, mongo_uri=MONGODB_URI, database_name=DATABASE_NAME, collection_name=COLLECTION_NAME):
         self.mongo_client = None
@@ -158,8 +164,10 @@ class MongoDBManager:
         
         self._set_query(natural_language_query)
         mongo_query = self._translate_to_mongo_query()
-        #print("mongo_query:", mongo_query)
-        return self._execute_query(mongo_query)
+        results = self._execute_query(mongo_query)
+        if _LOGGING_ENABLED:
+            log_mongo_query(mongo_query, results, natural_language_query)
+        return results
 
 class VectorDBManager:
     def __init__(self, embedding_fn, chroma_collection_name=CHROMA_COLLECTION_NAME, 
@@ -173,10 +181,16 @@ class VectorDBManager:
 
     def query_text(self, query_text, n_results=5):
         """Query the pre-built ChromaDB"""
-        return self.chroma_collection.query(
+        results = self.chroma_collection.query(
             query_texts=[query_text],
             n_results=n_results
         )
+        if _LOGGING_ENABLED:
+            docs = results.get("documents", [[]])[0] if results else []
+            metas = results.get("metadatas", [[]])[0] if results.get("metadatas") else None
+            dists = results.get("distances", [[]])[0] if results.get("distances") else None
+            log_chroma_result(query_text, docs, metas, dists)
+        return results
 
 class LLMChatbot:
     def __init__(self, model_name="gpt-4o-mini", openai_api_key=OPENAI_API_KEY):  # Fixed: Changed from invalid "gpt-5-nano" to valid model
@@ -187,6 +201,8 @@ class LLMChatbot:
         self.model_name = model_name
 
     async def generate_response(self, mongo_data, chroma_data, user_query, history_summary=None, stream=False, on_token=None):
+        if _LOGGING_ENABLED:
+            log_llm_context(user_query, mongo_data, chroma_data, history_summary)
         prompt = f"""
         You are an AI assistant that answers questions based on the following data:
         {history_summary if history_summary else "No previous conversation history."}
