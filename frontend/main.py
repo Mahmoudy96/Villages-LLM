@@ -48,11 +48,6 @@ if not st.session_state.messages:
     st.markdown("""
     <div class="empty-state">
         <div class="empty-state-icon">🫒</div>
-        <p class="empty-state-title">Ask me anything about Palestine</p>
-        <p class="empty-state-subtitle">
-            I can help you explore villages, history, culture, and more. 
-            Try asking in Arabic, English, or Hebrew.
-        </p>
     </div>
     """, unsafe_allow_html=True)
 
