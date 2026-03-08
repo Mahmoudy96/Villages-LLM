@@ -8,8 +8,8 @@ def render_header(backend_connected: bool = False):
     st.markdown(f"""
     <div class="main-header">
         <div class="main-header-content">
-            <h1>Rahalah <span class="arabic">رحالة</span></h1>
-            <p class="subtitle">مرشد محوسب لبلاد فلسطين · Your AI guide to Palestine</p>
+            <h1><span class="title-english">Rahalah</span><span class="title-arabic">رحالة</span></h1>
+            <p class="subtitle"><span class="subtitle-english">Your AI guide to Palestine</span><span class="subtitle-arabic">مرشد محوسب لبلاد فلسطين</span></p>
         </div>
         <span class="status-badge {status_class}">● {status_text}</span>
     </div>

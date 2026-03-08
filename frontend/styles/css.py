@@ -67,10 +67,21 @@ def get_css_styles():
         margin: 0 !important;
         color: var(--earth) !important;
         letter-spacing: 0.02em;
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        width: 100% !important;
     }
     
-    .main-header-content h1 .arabic {
+    .main-header-content h1 .title-english {
+        text-align: left;
+        color: var(--earth) !important;
+    }
+    
+    .main-header-content h1 .title-arabic {
+        text-align: right;
         color: var(--olive) !important;
+        font-family: 'Amiri', 'Traditional Arabic', serif !important;
     }
     
     .main-header-content .subtitle {
@@ -79,6 +90,19 @@ def get_css_styles():
         color: var(--earth-light) !important;
         margin: 0.35rem 0 0 0 !important;
         font-weight: 500;
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        width: 100% !important;
+    }
+    
+    .main-header-content .subtitle-english {
+        text-align: left;
+    }
+    
+    .main-header-content .subtitle-arabic {
+        text-align: right;
+        font-family: 'Amiri', 'Traditional Arabic', serif !important;
     }
     
     /* Sidebar - light green */
