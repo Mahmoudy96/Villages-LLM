@@ -61,15 +61,20 @@ class DataPreparer:
                 metadatas.append({"source": "text_file", "file_name": file_name})
                 ids.append(full_idx)
 
-            # Add in batches to avoid memory issues
+            # Add in batches to avoid ChromaDB "batch size exceeds maximum" error
+            # SQLite limit is ~41k; use 500 per batch to stay safe across systems
+            BATCH_SIZE = 500
             if documents:
-                chroma_collection.add(
-                    documents=documents,
-                    metadatas=metadatas,
-                    ids=ids
-                )
-
-            print(f"Processed {file_name}: {len(chunks)} chunks")
+                for i in range(0, len(documents), BATCH_SIZE):
+                    batch_docs = documents[i:i + BATCH_SIZE]
+                    batch_metas = metadatas[i:i + BATCH_SIZE]
+                    batch_ids = ids[i:i + BATCH_SIZE]
+                    chroma_collection.add(
+                        documents=batch_docs,
+                        metadatas=batch_metas,
+                        ids=batch_ids
+                    )
+                print(f"Processed {file_name}: {len(chunks)} chunks")
         print(f"ChromaDB preparation complete! Database saved to: {self.chroma_path}")
 
     def _split_text(self, text, chunk_size, chunk_overlap):
